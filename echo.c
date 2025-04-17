@@ -29,7 +29,7 @@ int setup(int* server_fd, int* client_fd, struct sockaddr_in* servaddr,
     printf("Creating socket...\n");
     *server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (*server_fd == -1) {
-        perror("Socket creation failed");
+        perror("socket() failed");
         return 1;
     }
 
