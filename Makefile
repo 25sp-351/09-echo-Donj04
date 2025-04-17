@@ -1,4 +1,4 @@
-MAIN = main
+MAIN = echo
 
 OBJS = $(MAIN).o
 
