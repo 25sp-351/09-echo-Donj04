@@ -1,4 +1,5 @@
 #include <netinet/in.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -19,8 +20,12 @@
 #define USAGE_ERR 1
 #define PORT_INPUT_ERR 2
 
+typedef struct {
+    int client_fd;
+    bool verbose;
+} client_data_t;
+
 int server_fd = -1;
-int client_fd = -1;
 
 void usage_msg(char* argv[]) {
     fprintf(stderr, "Usage: %s [-p <port>] [-v]\n", argv[0]);
@@ -31,6 +36,7 @@ void usage_msg(char* argv[]) {
 }
 
 // Read command line arguments and print an error if the inputs were invalid
+// Sets values of port_num and verbose based on arguments given
 int handle_args(int argc, char* argv[], int* port_num, bool* verbose) {
     bool p_arg_found = false;
     bool v_arg_found = false;
@@ -59,19 +65,19 @@ int handle_args(int argc, char* argv[], int* port_num, bool* verbose) {
             // Detect if '-v' arg was already read
             if (v_arg_found)
                 return USAGE_ERR;
-
             *verbose    = true;
             v_arg_found = true;
 
-        } else
-            printf("%s\n", argv[ix]);
+            // If argument is not '-p' or '-v', and is not the port number given
+            // after '-p', the argument must be invalid
+        } else if (strncmp(argv[ix - 1], P_ARG_STR, ARG_LEN) != 0)
+            return USAGE_ERR;
     }
     return 0;
 }
 
 // Initialize echo server using TCP, and print an error message if failed
 int setup_server(struct sockaddr_in* servaddr, int port_num) {
-
     printf("Creating socket...\n");
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd == -1) {
@@ -101,16 +107,18 @@ int setup_server(struct sockaddr_in* servaddr, int port_num) {
 }
 
 // Read messages from the client and echo them back
-void read_client(bool verbose) {
+void* read_client(void* input_ptr) {
+    client_data_t* input = (client_data_t*)input_ptr;
+    pthread_t thread_id  = pthread_self();
     char buffer[MAX_MSG_SIZE];
+
+    printf("Client connected, handling in thread %lu\n",
+           (unsigned long)thread_id);
 
     while (true) {
         memset(buffer, 0, MAX_MSG_SIZE);
 
-        if (verbose)
-            printf("===================\n");
-
-        ssize_t bytes_read = read(client_fd, buffer, MAX_MSG_SIZE);
+        ssize_t bytes_read = read(input->client_fd, buffer, MAX_MSG_SIZE);
         if (bytes_read == -1) {
             perror("read() failed");
             continue;
@@ -121,24 +129,27 @@ void read_client(bool verbose) {
 
         buffer[bytes_read] = '\0';
 
-        if (verbose)
-            printf("Received: %s\n", buffer);
+        if (input->verbose) {
+            printf("Thread %lu received: %s", (unsigned long)thread_id, buffer);
+            // Print a newline if input did not have one
+            if (buffer[bytes_read - 1] != '\n')
+                printf("\n");
+            printf("===================\n");
+        }
 
-        if (write(client_fd, buffer, bytes_read) == -1)
+        if (write(input->client_fd, buffer, bytes_read) == -1)
             perror("write() failed");
     }
+
+    close(input->client_fd);
+    printf("Client FD closed (thread: %lu)\n", (unsigned long)thread_id);
+    free(input);
+    return NULL;
 }
 
 void close_server() {
-    printf("\nClosing server...\n");
-    if (server_fd != -1) {
-        close(server_fd);
-        printf("Server FD closed\n");
-    }
-    if (client_fd != -1) {
-        close(client_fd);
-        printf("Client FD closed\n");
-    }
+    close(server_fd);
+    printf("\nServer FD closed\n");
     exit(0);
 }
 
@@ -164,19 +175,24 @@ int main(int argc, char* argv[]) {
         return 1;
 
     while (true) {
-        printf("Waiting for client to connect...\n");
-        client_fd = accept(server_fd, NULL, NULL);
+
+        int client_fd = accept(server_fd, NULL, NULL);
         if (client_fd == -1) {
             perror("accept() failed");
             continue;
         }
 
-        printf("Client connected\n");
-        read_client(verbose);
+        client_data_t* data = malloc(sizeof(client_data_t));
+        data->client_fd     = client_fd;
+        data->verbose       = verbose;
 
-        close(client_fd);
-        printf("Client FD closed\n");
-        client_fd = -1;
+        pthread_t thread_id;
+        if (pthread_create(&thread_id, NULL, read_client, data) != 0) {
+            perror("pthread_create() failed");
+            return 1;
+        }
+        pthread_detach(thread_id);
+        printf("Thread %lu created\n", thread_id);
     }
     return 0;
 }
