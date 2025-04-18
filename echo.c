@@ -175,7 +175,6 @@ int main(int argc, char* argv[]) {
         return 1;
 
     while (true) {
-
         int client_fd = accept(server_fd, NULL, NULL);
         if (client_fd == -1) {
             perror("accept() failed");
@@ -189,7 +188,9 @@ int main(int argc, char* argv[]) {
         pthread_t thread_id;
         if (pthread_create(&thread_id, NULL, read_client, data) != 0) {
             perror("pthread_create() failed");
-            return 1;
+            close(client_fd);
+            free(data);
+            continue;
         }
         pthread_detach(thread_id);
         printf("Thread %lu created\n", thread_id);
