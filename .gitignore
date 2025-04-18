@@ -6,6 +6,6 @@
 .ob
 .exe
 a.out
-main
+echo
 node_modules/
 .vscode/
