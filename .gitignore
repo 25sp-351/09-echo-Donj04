@@ -1,0 +1,11 @@
+.history
+.jj
+.env
+*.o
+*.so
+.ob
+.exe
+a.out
+echo
+node_modules/
+.vscode/
